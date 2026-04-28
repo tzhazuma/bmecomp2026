@@ -1,0 +1,47 @@
+# Python依赖包列表
+# BCI-VR注意力训练系统
+
+# 数据处理
+numpy>=1.24.0
+pandas>=2.0.0
+scipy>=1.10.0
+
+# 数据可视化
+matplotlib>=3.7.0
+plotly>=5.13.0
+
+# 网络通信
+pyzmq>=25.0.0
+websocket-client>=1.5.0
+
+# 串口通信
+pyserial>=3.5
+
+# 数据记录
+h5py>=3.8.0
+json5>=0.9.0
+
+# 测试
+pytest>=7.3.0
+pytest-cov>=4.0.0
+
+# 文档
+sphinx>=6.0.0
+sphinx-rtd-theme>=1.2.0
+
+# 开发工具
+black>=23.0.0
+flake8>=6.0.0
+isort>=5.12.0
+
+# 类型检查
+mypy>=1.0.0
+types-requests>=2.28.0
+
+# 虚拟环境
+virtualenv>=20.20.0
+
+# 其他工具
+requests>=2.28.0
+tqdm>=4.65.0
+python-dotenv>=1.0.0
