@@ -103,6 +103,9 @@ logs/
 *.bak
 *.backup
 
+# Session data
+session_data/
+
 # Jupyter Notebook
 .ipynb_checkpoints
 

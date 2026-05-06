@@ -1,0 +1,35 @@
+data_source:
+  mode: mock
+
+local:
+  server_name: "HNNKPlatform"
+
+tcp:
+  host: "127.0.0.1"
+  port: 8000
+
+mock:
+  attention_min: 30.0
+  attention_max: 90.0
+  attention_freq: 0.1
+  imu_noise: 3.0
+  update_rate: 50
+
+unity_server:
+  host: "0.0.0.0"
+  port: 5555
+
+signal_processing:
+  window_size: 7
+  alpha: 0.7
+  imu_deadzone: 5.0
+
+game:
+  default_level: 1
+  session_duration_sec: 180
+  focus_threshold: 70
+  combo_threshold_sec: 10
+
+recording:
+  enabled: true
+  output_dir: "./session_data"

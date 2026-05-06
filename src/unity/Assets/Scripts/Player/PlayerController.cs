@@ -1,381 +1,170 @@
-/**
- * 玩家控制器
- * 负责飞船移动、碰撞检测、视觉效果
- */
-
 using UnityEngine;
+using System.Collections.Generic;
 
-/// <summary>
-/// 移动配置
-/// </summary>
-[System.Serializable]
-public class MovementConfig
-{
-    [Header("速度设置")]
-    [Tooltip("最小飞行速度")]
-    public float minSpeed = 5f;
-    
-    [Tooltip("最大飞行速度")]
-    public float maxSpeed = 30f;
-    
-    [Tooltip("速度平滑系数")]
-    public float speedSmoothing = 5f;
-    
-    [Header("方向控制")]
-    [Tooltip("偏航灵敏度")]
-    public float yawSensitivity = 2f;
-    
-    [Tooltip("俯仰灵敏度")]
-    public float pitchSensitivity = 1.5f;
-    
-    [Tooltip("方向平滑系数")]
-    public float directionSmoothing = 0.1f;
-    
-    [Tooltip("死区阈值")]
-    public float deadzone = 5f;
-    
-    [Header("边界限制")]
-    [Tooltip("水平边界")]
-    public float horizontalLimit = 20f;
-    
-    [Tooltip("垂直边界")]
-    public float verticalLimit = 10f;
-}
-
-/// <summary>
-/// 玩家控制器
-/// 控制飞船的移动和交互
-/// </summary>
 public class PlayerController : MonoBehaviour
 {
-    #region 配置
-    [Header("移动配置")]
-    public MovementConfig movementConfig = new MovementConfig();
-    
-    [Header("组件引用")]
-    [Tooltip("飞船模型")]
-    public Transform shipModel;
-    
-    [Tooltip("粒子特效")]
-    public ParticleSystem speedParticles;
-    
-    [Tooltip("专注特效")]
-    public ParticleSystem focusParticles;
-    #endregion
+    public float baseSpeed = 10f;
+    public float maxSpeed = 30f;
+    public float minSpeed = 5f;
+    public float yawSensitivity = 2f;
+    public float pitchSensitivity = 1.5f;
+    public float imuDeadzone = 5f;
+    public float horizontalLimit = 20f;
+    public float verticalLimit = 10f;
+    public float speedSmoothTime = 3f;
+    public float imuSmoothTime = 0.1f;
 
-    #region 状态
-    [SerializeField]
-    private float currentSpeed = 0f;
-    
-    [SerializeField]
-    private float targetSpeed = 0f;
-    
-    [SerializeField]
-    private float currentYaw = 0f;
-    
-    [SerializeField]
-    private float currentPitch = 0f;
-    
-    [SerializeField]
-    private float targetYaw = 0f;
-    
-    [SerializeField]
-    private float targetPitch = 0f;
-    
-    [SerializeField]
-    private bool isFocused = false;
-    #endregion
+    public Transform cameraTransform;
+    public ParticleSystem shipTrail;
+    public GameObject shieldEffect;
 
-    #region 私有变量
-    private Vector3 startPosition;
+    [Header("Camera Shake")]
+    public float shakeIntensity = 0.3f;
+    public float shakeSpeed = 5f;
+
+    private float currentSpeed;
+    private float targetSpeed;
+    private float currentYaw;
+    private float currentPitch;
+    private float targetYaw;
+    private float targetPitch;
+    private float shieldStrength = 0f;
+
     private BCIManager bciManager;
-    private GameManager gameManager;
-    private Rigidbody rb;
-    #endregion
+    private Vector3 startCameraPos;
+    private Vector3 originalPosition;
 
-    #region Unity生命周期
     void Start()
     {
-        startPosition = transform.position;
+        originalPosition = transform.position;
         bciManager = BCIManager.Instance;
-        gameManager = GameManager.Instance;
-        rb = GetComponent<Rigidbody>();
+        startCameraPos = cameraTransform ? cameraTransform.localPosition : Vector3.zero;
 
-        // 注册BCI事件
         if (bciManager != null)
         {
             bciManager.OnAttentionUpdated += OnAttentionUpdated;
             bciManager.OnIMUUpdated += OnIMUUpdated;
         }
-
-        // 初始化速度
-        currentSpeed = movementConfig.minSpeed;
-        targetSpeed = movementConfig.minSpeed;
     }
 
     void Update()
     {
-        if (gameManager != null && gameManager.GetCurrentState() != GameState.Playing)
-            return;
-
         UpdateSpeed();
-        UpdateDirection();
         UpdatePosition();
-        UpdateVisuals();
+        UpdateShield();
+        UpdateCameraShake();
+    }
+
+    private void UpdateSpeed()
+    {
+        currentSpeed = Mathf.Lerp(currentSpeed, targetSpeed, Time.deltaTime * speedSmoothTime);
+        transform.Translate(Vector3.forward * currentSpeed * Time.deltaTime);
+    }
+
+    private void UpdatePosition()
+    {
+        currentYaw = Mathf.Lerp(currentYaw, targetYaw, Time.deltaTime / (imuSmoothTime + 0.001f));
+        currentPitch = Mathf.Lerp(currentPitch, targetPitch, Time.deltaTime / (imuSmoothTime + 0.001f));
+
+        float horizontalMove = currentYaw * yawSensitivity * Time.deltaTime;
+        float verticalMove = currentPitch * pitchSensitivity * Time.deltaTime;
+
+        Vector3 newPos = transform.position + new Vector3(horizontalMove, verticalMove, 0);
+        newPos.x = Mathf.Clamp(newPos.x, originalPosition.x - horizontalLimit, originalPosition.x + horizontalLimit);
+        newPos.y = Mathf.Clamp(newPos.y, originalPosition.y - verticalLimit, originalPosition.y + verticalLimit);
+        transform.position = newPos;
+    }
+
+    private void UpdateShield()
+    {
+        if (shieldEffect)
+        {
+            bool shieldActive = shieldStrength > 0.5f;
+            if (shieldEffect.activeSelf != shieldActive)
+                shieldEffect.SetActive(shieldActive);
+            if (shieldActive)
+            {
+                float scale = 1f + shieldStrength * 0.5f;
+                shieldEffect.transform.localScale = Vector3.one * scale;
+                var main = shieldEffect.GetComponent<ParticleSystem>().main;
+                main.startColor = Color.Lerp(Color.cyan, Color.gold, shieldStrength);
+            }
+        }
+    }
+
+    private void UpdateCameraShake()
+    {
+        if (!cameraTransform) return;
+        if (shieldStrength < 0.4f)
+        {
+            float intensity = (0.4f - shieldStrength) * shakeIntensity * 2f;
+            float offsetX = Mathf.PerlinNoise(Time.time * shakeSpeed, 0) * 2 - 1;
+            float offsetY = Mathf.PerlinNoise(0, Time.time * shakeSpeed) * 2 - 1;
+            cameraTransform.localPosition = startCameraPos + new Vector3(offsetX * intensity, offsetY * intensity, 0);
+        }
+        else
+        {
+            cameraTransform.localPosition = Vector3.Lerp(cameraTransform.localPosition, startCameraPos, Time.deltaTime * 3f);
+        }
+    }
+
+    private void OnAttentionUpdated(float attention)
+    {
+        float ratio = Mathf.Clamp01(attention / 100f);
+        targetSpeed = minSpeed + (maxSpeed - minSpeed) * ratio;
+        shieldStrength = Mathf.Clamp01((attention - 30f) / 60f);
+
+        if (shipTrail)
+        {
+            var main = shipTrail.main;
+            main.startSpeedMultiplier = 1f + ratio;
+            main.startColor = Color.Lerp(Color.gray, Color.gold, ratio);
+        }
+    }
+
+    private void OnIMUUpdated(float yaw, float pitch, float roll, float sx, float sy)
+    {
+        if (Mathf.Abs(yaw) < imuDeadzone) yaw = 0f;
+        if (Mathf.Abs(pitch) < imuDeadzone) pitch = 0f;
+        targetYaw = yaw;
+        targetPitch = pitch;
     }
 
     void OnDestroy()
     {
-        // 取消事件注册
         if (bciManager != null)
         {
             bciManager.OnAttentionUpdated -= OnAttentionUpdated;
             bciManager.OnIMUUpdated -= OnIMUUpdated;
         }
     }
-    #endregion
 
-    #region 移动控制
-    /// <summary>
-    /// 更新速度
-    /// </summary>
-    private void UpdateSpeed()
-    {
-        // 平滑过渡速度
-        currentSpeed = Mathf.Lerp(currentSpeed, targetSpeed, 
-            Time.deltaTime * movementConfig.speedSmoothing);
-
-        // 向前移动
-        transform.Translate(Vector3.forward * currentSpeed * Time.deltaTime);
-    }
-
-    /// <summary>
-    /// 更新方向
-    /// </summary>
-    private void UpdateDirection()
-    {
-        // 平滑过渡方向
-        currentYaw = Mathf.Lerp(currentYaw, targetYaw, 
-            movementConfig.directionSmoothing);
-        currentPitch = Mathf.Lerp(currentPitch, targetPitch, 
-            movementConfig.directionSmoothing);
-
-        // 应用旋转
-        if (shipModel != null)
-        {
-            shipModel.localRotation = Quaternion.Euler(
-                -currentPitch * 0.5f, 
-                currentYaw * 0.3f, 
-                -currentYaw * 0.2f
-            );
-        }
-    }
-
-    /// <summary>
-    /// 更新位置
-    /// </summary>
-    private void UpdatePosition()
-    {
-        // 计算水平和垂直移动
-        float horizontalMove = currentYaw * movementConfig.yawSensitivity * Time.deltaTime;
-        float verticalMove = currentPitch * movementConfig.pitchSensitivity * Time.deltaTime;
-
-        // 计算新位置
-        Vector3 newPosition = transform.position + new Vector3(horizontalMove, verticalMove, 0);
-
-        // 限制边界
-        newPosition.x = Mathf.Clamp(newPosition.x, 
-            -movementConfig.horizontalLimit, 
-            movementConfig.horizontalLimit);
-        newPosition.y = Mathf.Clamp(newPosition.y, 
-            -movementConfig.verticalLimit, 
-            movementConfig.verticalLimit);
-
-        // 应用位置
-        if (rb != null)
-        {
-            rb.MovePosition(newPosition);
-        }
-        else
-        {
-            transform.position = newPosition;
-        }
-    }
-    #endregion
-
-    #region 事件处理
-    /// <summary>
-    /// 专注力数据更新回调
-    /// </summary>
-    private void OnAttentionUpdated(float attention)
-    {
-        // 将专注力映射为速度
-        // attention范围: 0-100
-        // speed范围: minSpeed-maxSpeed
-        float normalizedAttention = attention / 100f;
-        targetSpeed = Mathf.Lerp(movementConfig.minSpeed, movementConfig.maxSpeed, 
-            normalizedAttention);
-
-        // 更新专注状态
-        isFocused = attention >= 70f;
-    }
-
-    /// <summary>
-    /// IMU数据更新回调
-    /// </summary>
-    private void OnIMUUpdated(float yaw, float pitch, float roll)
-    {
-        // 死区处理
-        if (Mathf.Abs(yaw) < movementConfig.deadzone) yaw = 0f;
-        if (Mathf.Abs(pitch) < movementConfig.deadzone) pitch = 0f;
-
-        // 更新目标方向
-        targetYaw = yaw;
-        targetPitch = pitch;
-    }
-    #endregion
-
-    #region 碰撞检测
     void OnCollisionEnter(Collision collision)
     {
-        HandleCollision(collision.gameObject);
+        if (collision.gameObject.CompareTag("Obstacle"))
+        {
+            if (shieldStrength > 0.5f)
+            {
+                GameManager.Instance?.OnShieldBlockObstacle();
+                Destroy(collision.gameObject);
+            }
+            else
+            {
+                GameManager.Instance?.OnPlayerHitObstacle();
+            }
+        }
     }
 
     void OnTriggerEnter(Collider other)
     {
-        HandleTrigger(other.gameObject);
-    }
-
-    /// <summary>
-    /// 处理碰撞
-    /// </summary>
-    private void HandleCollision(GameObject other)
-    {
-        if (other.CompareTag("Obstacle"))
-        {
-            // 碰到障碍物
-            if (gameManager != null)
-            {
-                gameManager.OnPlayerHitObstacle();
-            }
-
-            // 播放碰撞特效
-            PlayHitEffect();
-
-            Debug.Log("碰到障碍物");
-        }
-    }
-
-    /// <summary>
-    /// 处理触发器
-    /// </summary>
-    private void HandleTrigger(GameObject other)
-    {
         if (other.CompareTag("Collectible"))
         {
-            // 收集物品
-            if (gameManager != null)
-            {
-                gameManager.OnCollectiblePickedUp();
-            }
-
-            // 播放收集特效
-            PlayCollectEffect(other.transform.position);
-
-            // 销毁收集物
+            GameManager.Instance?.OnCollectiblePickedUp();
             Destroy(other.gameObject);
-
-            Debug.Log("收集物品");
-        }
-    }
-    #endregion
-
-    #region 视觉效果
-    /// <summary>
-    /// 更新视觉效果
-    /// </summary>
-    private void UpdateVisuals()
-    {
-        // 更新速度粒子效果
-        if (speedParticles != null)
-        {
-            var emission = speedParticles.emission;
-            float speedRatio = (currentSpeed - movementConfig.minSpeed) / 
-                (movementConfig.maxSpeed - movementConfig.minSpeed);
-            emission.rateOverTime = Mathf.Lerp(10f, 100f, speedRatio);
-        }
-
-        // 更新专注特效
-        if (focusParticles != null)
-        {
-            if (isFocused && !focusParticles.isPlaying)
-            {
-                focusParticles.Play();
-            }
-            else if (!isFocused && focusParticles.isPlaying)
-            {
-                focusParticles.Stop();
-            }
         }
     }
 
-    /// <summary>
-    /// 播放碰撞特效
-    /// </summary>
-    private void PlayHitEffect()
-    {
-        // TODO: 实现碰撞特效
-        // 可以添加屏幕震动、闪烁等效果
-    }
-
-    /// <summary>
-    /// 播放收集特效
-    /// </summary>
-    private void PlayCollectEffect(Vector3 position)
-    {
-        // TODO: 实现收集特效
-        // 可以添加粒子爆发、光效等
-    }
-    #endregion
-
-    #region 公共接口
-    /// <summary>
-    /// 获取当前速度
-    /// </summary>
-    public float GetCurrentSpeed()
-    {
-        return currentSpeed;
-    }
-
-    /// <summary>
-    /// 获取速度比例 (0-1)
-    /// </summary>
-    public float GetSpeedRatio()
-    {
-        return (currentSpeed - movementConfig.minSpeed) / 
-            (movementConfig.maxSpeed - movementConfig.minSpeed);
-    }
-
-    /// <summary>
-    /// 是否处于专注状态
-    /// </summary>
-    public bool IsFocused()
-    {
-        return isFocused;
-    }
-
-    /// <summary>
-    /// 重置位置
-    /// </summary>
-    public void ResetPosition()
-    {
-        transform.position = startPosition;
-        currentSpeed = movementConfig.minSpeed;
-        targetSpeed = movementConfig.minSpeed;
-        currentYaw = 0f;
-        currentPitch = 0f;
-        targetYaw = 0f;
-        targetPitch = 0f;
-    }
-    #endregion
+    public float GetSpeedRatio() => Mathf.Clamp01(currentSpeed / maxSpeed);
+    public float GetShieldStrength() => shieldStrength;
+    public float GetCurrentSpeed() => currentSpeed;
 }

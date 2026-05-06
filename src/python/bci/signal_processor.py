@@ -219,16 +219,11 @@ class SignalProcessor:
     组合多种滤波器，对BCI信号进行综合处理
     """
     
-    def __init__(self, config: Optional[FilterConfig] = None):
-        """
-        初始化信号处理器
-        
-        Args:
-            config: 滤波器配置
-        """
+    def __init__(self, config: Optional[FilterConfig] = None,
+                 window_size: int = 10, alpha: float = 0.7,
+                 deadzone: float = 5.0):
         if config is None:
-            config = FilterConfig()
-            
+            config = FilterConfig(window_size=window_size, alpha=alpha, deadzone=deadzone)
         self.config = config
         
         # 初始化滤波器
